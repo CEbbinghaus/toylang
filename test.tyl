@@ -1,0 +1,32 @@
+# this is the first ever program interpreted by toylang
+
+::main:
+push 13
+jump fib
+
+::fib:
+push 1
+swap
+sub
+push 0
+print
+push 1
+print
+jump fibinner
+
+::fibinner:
+dup
+rot
+add
+print
+rot
+push 1
+swap
+sub
+ifjmp end
+rot
+rot
+jump fibinner
+
+::end:
+exit
