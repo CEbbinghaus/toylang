@@ -3,7 +3,6 @@
 ::main:
 push "Running FizzBuzz\n"
 print
-drop
 push 64
 push 0
 jump loop
@@ -13,7 +12,6 @@ over
 over
 eq
 ifjmp exit
-drop
 
 push 1
 add
@@ -32,54 +30,32 @@ mod
 push 0
 eq
 
+swap
 over
+over
+
 ifjmp printfizz
-
-over
 ifjmp printbuzz
-
-drop
-drop
 
 or
 not
 ifjmp print
 
-// This shit is SUPER stupid.
-// at the point at which we run `ifjmp print` our stack has 1 bool at the end.
-// Now since ifjmp does not consume a stack element but rather just observes what is at the top
-// we need to drop the bool before printing the number in ::print:
-// But if the bool was false and the jump never happened there is still a bool at the end of the stack.
-// so we have to push another bool and test for equality which tells us whether or not the last element is a false bool.
-// which in turn triggers the if statement to run and drop that extra bool...
-dup
-push false
-eq
-ifjmp do_super_wierd_drop
-drop
-
 push "\n"
 print
-drop
 jump loop
 
-
-::do_super_wierd_drop:
-drop
-
 ::print:
-drop
+dup
 print
 
 ::printfizz:
 push "Fizz"
 print
-drop
 
 ::printbuzz:
 push "Buzz"
 print
-drop
 
 
 ::exit:

@@ -401,13 +401,13 @@ fn interpret(path: PathBuf, debug: bool) {
                 continue;
             }
             Instructions::IfJmp(label) => {
-                let Some(a) = stack.last() else {
+                let Some(a) = stack.pop() else {
                     panic!("Not enough values on the stack to compare");
                 };
 
                 let should_jump = match a {
-                    DataType::Bool(a) => *a,
-                    DataType::Int(a) => *a == 0,
+                    DataType::Bool(a) => a,
+                    DataType::Int(a) => a == 0,
                     _ => {
                         panic!("Cannot compare non-numeric values {:?}", a);
                     }
@@ -441,7 +441,7 @@ fn interpret(path: PathBuf, debug: bool) {
                     panic!("Nothing to print");
                 }
 
-                match stack.last().unwrap() {
+                match stack.pop().unwrap() {
                     DataType::Bool(a) => print!("{}", a),
                     DataType::Int(a) => print!("{}", a),
                     DataType::Float(a) => print!("{}", a),

@@ -26,16 +26,17 @@ rot
 push 1
 swap
 sub
+dup
 ifjmp end
 rot
 rot
 jump fibinner
 
 ::println:
+dup
 print
 push "\n"
 print
-drop
 
 ::end:
 exit
