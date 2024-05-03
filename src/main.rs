@@ -16,6 +16,9 @@ enum Commands {
     Run {
         /// Path to the program to run
         path: PathBuf,
+
+        #[arg(short, long, default_value_t = false)]
+        debug: bool,
     },
 }
 
@@ -23,21 +26,35 @@ fn main() {
     let args = Args::parse();
 
     match args.cmd {
-        Commands::Run { path } => {
-            interpret(path);
+        Commands::Run { path, debug } => {
+            interpret(path, debug);
         }
     }
 }
 
+#[derive(PartialEq, Debug, Clone)]
+enum DataType {
+    Bool(bool),
+    Int(usize),
+    Float(f64),
+    String(String),
+}
+
 #[derive(Debug, Clone)]
 enum Instructions {
-    Push(u8),
+    Push(DataType),
     Jump(String),
     IfJmp(String),
+    EQ,
+    NE,
+    And,
+    Or,
+    Not,
     Add,
     Sub,
     Mul,
     Div,
+    Mod,
     Dup,
     Swap,
     Over,
@@ -55,7 +72,7 @@ enum Program {
     Section(SectionName, Vec<Instructions>),
 }
 
-fn interpret(path: PathBuf) {
+fn interpret(path: PathBuf, debug: bool) {
     let contents = std::fs::read_to_string(path).unwrap();
     let lines = contents.lines();
 
@@ -68,17 +85,13 @@ fn interpret(path: PathBuf) {
             continue;
         }
 
-        let mut parts = line.split(" ");
-
-        let Some(line) = parts.next() else {
-            panic!("how did we get here?");
-        };
-
         // We have found a section
         if line.starts_with("::") && line.ends_with(':') {
             if !instructions.is_empty() {
                 program.push(Program::Section(
-                    current_section.take().unwrap_or_else(|| SectionName("main".to_string())),
+                    current_section
+                        .take()
+                        .unwrap_or_else(|| SectionName("main".to_string())),
                     instructions.drain(..).collect(),
                 ));
             }
@@ -87,18 +100,34 @@ fn interpret(path: PathBuf) {
             continue;
         }
 
-        instructions.push(match line {
+        let (instruction, value) = line.split_once(" ").unwrap_or_else(|| (line, ""));
+
+        instructions.push(match instruction.to_lowercase().as_str() {
             "push" => {
-                let Some(value) = parts.next() else {
+                if value == "" {
                     panic!("push requires a value");
                 };
 
-                Instructions::Push(value.parse::<u8>().unwrap())
+                if value.starts_with('"') && value.ends_with('"') {
+                    Instructions::Push(DataType::String(value.trim_matches('"').replace("\\n", "\n").replace("\\r", "\r").to_string()))
+                } else if value.contains('.') {
+                    Instructions::Push(DataType::Float(value.parse::<f64>().unwrap()))
+                } else if value == "true" || value == "false" {
+                    Instructions::Push(DataType::Bool(value.parse::<bool>().unwrap()))
+                } else {
+                    Instructions::Push(DataType::Int(value.parse::<usize>().unwrap()))
+                }
             }
+            "eq" => Instructions::EQ,
+            "ne" => Instructions::NE,
+            "and" => Instructions::And,
+            "or" => Instructions::Or,
+            "not" => Instructions::Not,
             "add" => Instructions::Add,
             "sub" => Instructions::Sub,
             "mul" => Instructions::Mul,
             "div" => Instructions::Div,
+            "mod" => Instructions::Mod,
             "drop" => Instructions::Drop,
             "dup" => Instructions::Dup,
             "swap" => Instructions::Swap,
@@ -107,18 +136,18 @@ fn interpret(path: PathBuf) {
             "print" => Instructions::Print,
             "exit" => Instructions::Exit,
             "jump" => {
-                let Some(label) = parts.next() else {
+                if value == "" {
                     panic!("jump requires a label");
                 };
 
-                Instructions::Jump(label.to_string())
+                Instructions::Jump(value.to_string())
             }
             "ifjmp" => {
-                let Some(label) = parts.next() else {
+                if value == "" {
                     panic!("ifjmp requires a label");
                 };
 
-                Instructions::IfJmp(label.to_string())
+                Instructions::IfJmp(value.to_string())
             }
             _ => {
                 panic!("Unknown instruction: {line}");
@@ -127,7 +156,6 @@ fn interpret(path: PathBuf) {
     }
 
     if !instructions.is_empty() {
-
         if current_section.is_none() {
             current_section = Some(SectionName("main".to_string()));
         }
@@ -138,7 +166,7 @@ fn interpret(path: PathBuf) {
         ));
     }
 
-    let mut stack: Vec<u8> = Vec::new();
+    let mut stack: Vec<DataType> = Vec::new();
 
     let mut program_instructions: Vec<Instructions> = Vec::new();
     let mut ic = 0;
@@ -160,8 +188,11 @@ fn interpret(path: PathBuf) {
 
     while ic < program_instructions.len() {
         let instruction = program_instructions[ic].clone();
-        // println!("Stack: {:?}", stack);
-        // println!("Running Instruction: {:?}", instruction);
+
+        if debug {
+            println!("Stack: {:?}", stack);
+            println!("Running Instruction: {:?}", instruction);
+        }
 
         match instruction {
             Instructions::Push(value) => {
@@ -172,28 +203,90 @@ fn interpret(path: PathBuf) {
                     panic!("Not enough values on the stack to add");
                 };
 
-                stack.push(a + b);
+                match (&a, &b) {
+                    (DataType::Int(a), DataType::Int(b)) => {
+                        stack.push(DataType::Int(a + b));
+                    }
+                    (DataType::Float(a), DataType::Float(b)) => {
+                        stack.push(DataType::Float(a + b));
+                    }
+                    _ => {
+                        panic!("Cannot add non-numeric values {:?} and {:?}", a, b);
+                    }
+                }
             }
             Instructions::Sub => {
                 let (Some(a), Some(b)) = (stack.pop(), stack.pop()) else {
                     panic!("Not enough values on the stack to subtract");
                 };
 
-                stack.push(a - b);
+                match (&a, &b) {
+                    (DataType::Int(a), DataType::Int(b)) => {
+                        stack.push(DataType::Int(a - b));
+                    }
+                    (DataType::Float(a), DataType::Float(b)) => {
+                        stack.push(DataType::Float(a - b));
+                    }
+                    _ => {
+                        panic!("Cannot subtract non-numeric values {:?} and {:?}", a, b);
+                    }
+                }
             }
             Instructions::Mul => {
                 let (Some(a), Some(b)) = (stack.pop(), stack.pop()) else {
                     panic!("Not enough values on the stack to multiply");
                 };
 
-                stack.push(a * b);
+                match (&a, &b) {
+                    (DataType::Int(a), DataType::Int(b)) => {
+                        stack.push(DataType::Int(a * b));
+                    }
+                    (DataType::Float(a), DataType::Float(b)) => {
+                        stack.push(DataType::Float(a * b));
+                    }
+                    _ => {
+                        panic!("Cannot multiply non-numeric values {:?} and {:?}", a, b);
+                    }
+                }
             }
             Instructions::Div => {
                 let (Some(a), Some(b)) = (stack.pop(), stack.pop()) else {
                     panic!("Not enough values on the stack to divide");
                 };
 
-                stack.push(a / b);
+                match (&a, &b) {
+                    (DataType::Int(a), DataType::Int(b)) => {
+                        if b == &0 {
+                            panic!("Cannot divide by zero");
+                        }
+
+                        stack.push(DataType::Int(a / b));
+                    }
+                    (DataType::Float(a), DataType::Float(b)) => {
+                        if b == &0.0 {
+                            panic!("Cannot divide by zero");
+                        }
+
+                        stack.push(DataType::Float(a / b));
+                    }
+                    _ => {
+                        panic!("Cannot divide non-numeric values {:?} and {:?}", a, b);
+                    }
+                };
+            }
+            Instructions::Mod => {
+                let (Some(a), Some(b)) = (stack.pop(), stack.pop()) else {
+                    panic!("Not enough values on the stack to modulo");
+                };
+
+                match (&a, &b) {
+                    (DataType::Int(a), DataType::Int(b)) => {
+                        stack.push(DataType::Int(a % b));
+                    }
+                    _ => {
+                        panic!("Cannot modulo non-numeric values {:?} and {:?}", a, b);
+                    }
+                }
             }
             Instructions::Dup => {
                 let Some(a) = stack.last().cloned() else {
@@ -226,6 +319,60 @@ fn interpret(path: PathBuf) {
                 stack.push(a);
                 stack.push(c);
             }
+            Instructions::EQ => {
+                let (Some(a), Some(b)) = (stack.pop(), stack.pop()) else {
+                    panic!("Not enough values on the stack to compare");
+                };
+
+                stack.push(DataType::Bool(a == b));
+            }
+            Instructions::NE => {
+                let (Some(a), Some(b)) = (stack.pop(), stack.pop()) else {
+                    panic!("Not enough values on the stack to compare");
+                };
+
+                stack.push(DataType::Bool(a != b));
+            }
+            Instructions::And => {
+                let (Some(a), Some(b)) = (stack.pop(), stack.pop()) else {
+                    panic!("Not enough values on the stack to compare");
+                };
+
+                match (&a, &b) {
+                    (DataType::Bool(a), DataType::Bool(b)) => {
+                        stack.push(DataType::Bool(*a && *b));
+                    }
+                    _ => {
+                        panic!("Cannot compare non-boolean values {:?} and {:?}", a, b);
+                    }
+                }
+            }
+            Instructions::Or => {
+                let (Some(a), Some(b)) = (stack.pop(), stack.pop()) else {
+                    panic!("Not enough values on the stack to compare");
+                };
+
+                match (&a, &b) {
+                    (DataType::Bool(a), DataType::Bool(b)) => {
+                        stack.push(DataType::Bool(*a || *b));
+                    }
+                    _ => {
+                        panic!("Cannot compare non-boolean values {:?} and {:?}", a, b);
+                    }
+                }
+            }
+            Instructions::Not => {
+                let Some(a) = stack.pop() else {
+                    panic!("Not enough values on the stack to compare");
+                };
+
+                match a {
+                    DataType::Bool(a) => stack.push(DataType::Bool(!a)),
+                    _ => {
+                        panic!("Cannot compare non-boolean value {:?}", a);
+                    }
+                }
+            }
             Instructions::Drop => {
                 stack.pop();
             }
@@ -239,8 +386,7 @@ fn interpret(path: PathBuf) {
                     match section {
                         Program::Section(name, instructions) => {
                             if name.0 == label {
-                                program_instructions = instructions.to_vec();
-                                ic = 0;
+                                program_instructions.splice(ic..ic+1, instructions.to_vec());
                                 found = true;
                                 break;
                             }
@@ -259,15 +405,23 @@ fn interpret(path: PathBuf) {
                     panic!("Not enough values on the stack to compare");
                 };
 
-                if *a == 0 {
+                let should_jump = match a {
+                    DataType::Bool(a) => *a,
+                    DataType::Int(a) => *a == 0,
+                    _ => {
+                        panic!("Cannot compare non-numeric values {:?}", a);
+                    }
+                };
+
+                if should_jump {
                     let mut found = false;
 
                     for section in &program {
                         match section {
                             Program::Section(name, instructions) => {
                                 if name.0 == label {
-                                    program_instructions = instructions.to_vec();
-                                    ic = 0;
+                                    program_instructions
+                                        .splice(ic..ic+1, instructions.to_vec());
                                     found = true;
                                     break;
                                 }
@@ -287,7 +441,12 @@ fn interpret(path: PathBuf) {
                     panic!("Nothing to print");
                 }
 
-                println!("{}", stack.last().unwrap());
+                match stack.last().unwrap() {
+                    DataType::Bool(a) => print!("{}", a),
+                    DataType::Int(a) => print!("{}", a),
+                    DataType::Float(a) => print!("{}", a),
+                    DataType::String(a) => print!("{}", a),
+                }
             }
         }
         ic += 1;

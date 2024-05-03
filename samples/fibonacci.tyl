@@ -1,0 +1,41 @@
+# Lists all fibonacci numbers from 0 to 64
+
+::main:
+push "Calculating Fibonacci"
+jump println
+drop
+push 64
+jump fib
+
+::fib:
+push 1
+swap
+sub
+push 0
+jump println
+push 1
+jump println
+jump fibinner
+
+::fibinner:
+dup
+rot
+add
+jump println
+rot
+push 1
+swap
+sub
+ifjmp end
+rot
+rot
+jump fibinner
+
+::println:
+print
+push "\n"
+print
+drop
+
+::end:
+exit
