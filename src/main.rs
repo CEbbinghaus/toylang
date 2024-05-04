@@ -76,6 +76,7 @@ fn interpret(path: PathBuf, debug: bool) {
     let contents = std::fs::read_to_string(path).unwrap();
     let lines = contents.lines();
 
+    // Lexing the source code into an "AST" 
     let mut program: Vec<Program> = Vec::new();
     let mut current_section: Option<SectionName> = None;
     let mut instructions: Vec<Instructions> = Vec::new();
@@ -165,6 +166,35 @@ fn interpret(path: PathBuf, debug: bool) {
             instructions.drain(..).collect(),
         ));
     }
+
+    // Do static analysis on AST
+
+    for Program::Section(_, instructions) in &program {
+        
+        instructions.iter().for_each(|instruction| {
+            match instruction {
+                Instructions::Jump(label) | Instructions::IfJmp(label) => {
+                    let mut found = false;
+
+                    for Program::Section(name, _) in &program {
+                        if &name.0 == label {
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if !found {
+                        panic!("jump found to unknown label: {label}");
+                    }
+                }
+                _ => {}
+            }
+        });
+
+    }
+
+
+    // Interpret the "AST" to run the program
 
     let mut stack: Vec<DataType> = Vec::new();
 
